@@ -1,8 +1,15 @@
 const path = require('path');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../config/db');
 const { cloudinary, isCloudinaryConfigured } = require('../config/cloudinary');
 const { allowedExtensions } = require('../middleware/upload');
+
+// Ensure local uploads directory exists
+const UPLOADS_DIR = path.join(__dirname, '..', 'uploads', 'materials');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
 
 // Helper to upload buffer to Cloudinary
 function uploadBufferToCloudinary(fileBuffer, options) {
@@ -13,6 +20,17 @@ function uploadBufferToCloudinary(fileBuffer, options) {
     });
     uploadStream.end(fileBuffer);
   });
+}
+
+// Helper to save file locally
+function saveFileLocally(req, file, publicId, fileExt) {
+  const safeFilename = `${publicId}.${fileExt}`;
+  const filePath = path.join(UPLOADS_DIR, safeFilename);
+  fs.writeFileSync(filePath, file.buffer);
+
+  // Build URL based on current host (e.g. http://localhost:5000/uploads/materials/...)
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  return `${baseUrl}/uploads/materials/${safeFilename}`;
 }
 
 // 6.1 Upload Material
@@ -66,30 +84,33 @@ async function uploadMaterial(req, res) {
       });
     }
 
-    // STEP 3: Upload file to Cloudinary for storage
     let fileUrl = '';
     let publicId = uuidv4();
+    let cloudinaryId = null;
 
+    // STEP 3: Attempt Cloudinary upload first, fallback to local storage if Cloudinary fails (e.g. 403 API key permissions)
     if (isCloudinaryConfigured()) {
       try {
         const uploadResult = await uploadBufferToCloudinary(file.buffer, {
           folder: `uacc-eventhub/events/${eventId}/materials`,
-          resource_type: 'raw',
+          resource_type: 'auto',
           public_id: publicId,
         });
         fileUrl = uploadResult.secure_url;
-        publicId = uploadResult.public_id;
+        cloudinaryId = uploadResult.public_id;
       } catch (uploadError) {
-        console.error('Cloudinary upload error:', uploadError);
-        return res.status(500).json({
-          success: false,
-          message: 'File upload failed. Please try again.',
-        });
+        console.warn(
+          '⚠️ Cloudinary upload encountered an issue (missing API permissions or error). Storing file locally instead:',
+          uploadError.message || uploadError
+        );
+        // Fallback to local server storage
+        fileUrl = saveFileLocally(req, file, publicId, fileExt);
+        cloudinaryId = `local:${publicId}.${fileExt}`;
       }
     } else {
-      // In local dev without Cloudinary credentials configured yet:
-      fileUrl = `https://placeholder-materials.uacc.org/materials/${publicId}.${fileExt}`;
-      console.warn('⚠️ Cloudinary is not configured yet. Using placeholder URL for uploaded material.');
+      // Direct local storage if Cloudinary not configured
+      fileUrl = saveFileLocally(req, file, publicId, fileExt);
+      cloudinaryId = `local:${publicId}.${fileExt}`;
     }
 
     // STEP 4: Save the material record to the database
@@ -105,7 +126,7 @@ async function uploadMaterial(req, res) {
       eventId,
       file.originalname,
       fileUrl,
-      publicId,
+      cloudinaryId,
       fileExt,
       fileSizeKB,
     ]);
@@ -120,7 +141,7 @@ async function uploadMaterial(req, res) {
     console.error('Error in uploadMaterial:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to upload event material',
+      message: error.message || 'Failed to upload event material',
     });
   }
 }
@@ -200,8 +221,14 @@ async function deleteMaterial(req, res) {
       });
     }
 
-    // STEP 3: Delete file from Cloudinary
-    if (material.cloudinary_public_id && isCloudinaryConfigured()) {
+    // STEP 3: Delete file from local disk or Cloudinary
+    if (material.cloudinary_public_id?.startsWith('local:')) {
+      const filename = material.cloudinary_public_id.replace('local:', '');
+      const localPath = path.join(UPLOADS_DIR, filename);
+      if (fs.existsSync(localPath)) {
+        fs.unlinkSync(localPath);
+      }
+    } else if (material.cloudinary_public_id && isCloudinaryConfigured()) {
       try {
         await cloudinary.uploader.destroy(material.cloudinary_public_id, {
           resource_type: 'raw',

@@ -19,9 +19,14 @@ app.use(
   })
 );
 
+const path = require('path');
+
 // Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Static uploads serving with cross-origin access
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Health Check
 const healthHandler = (req, res) => {
