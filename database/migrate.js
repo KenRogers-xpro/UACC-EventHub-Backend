@@ -10,7 +10,7 @@ async function runMigration() {
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Database migration failed:', error.message);
+    console.error('❌ Database migration failed:', error);
     process.exit(1);
   }
 }
