@@ -11,11 +11,13 @@ const materialRoutes = require('./routes/materialRoutes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Enable CORS for frontend clients
+// Enable CORS for frontend clients (Vercel, local dev, custom domains)
 app.use(
   cors({
-    origin: '*',
+    origin: (origin, callback) => callback(null, true),
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
 );
 
