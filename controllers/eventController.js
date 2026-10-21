@@ -1,6 +1,56 @@
 const db = require('../config/db');
 const { cloudinary, isCloudinaryConfigured } = require('../config/cloudinary');
 
+// Upload cover image to Cloudinary
+// POST /api/events/cover-image
+async function uploadCoverImage(req, res) {
+  try {
+    if (!isCloudinaryConfigured()) {
+      return res.status(500).json({
+        success: false,
+        message: 'Cloud storage is not configured. Please set up Cloudinary.',
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No image file provided',
+      });
+    }
+
+    // Upload buffer to Cloudinary
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'uacc-eventhub/covers',
+          resource_type: 'image',
+          transformation: [
+            { width: 1600, height: 900, crop: 'limit', quality: 'auto', format: 'jpg' },
+          ],
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      uploadStream.end(req.file.buffer);
+    });
+
+    return res.status(200).json({
+      success: true,
+      url: result.secure_url,
+      public_id: result.public_id,
+    });
+  } catch (error) {
+    console.error('Error uploading cover image:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to upload cover image',
+    });
+  }
+}
+
 // 3.1 Create Event
 // POST /api/events
 async function createEvent(req, res) {
@@ -328,6 +378,7 @@ async function deleteEvent(req, res) {
 }
 
 module.exports = {
+  uploadCoverImage,
   createEvent,
   getAllEvents,
   getSingleEvent,

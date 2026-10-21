@@ -15,6 +15,10 @@ const { upload } = require('../middleware/upload');
 // All event routes are protected by admin JWT
 router.use(verifyAdminToken);
 
+// Cover image upload (must be before /:id routes to avoid route conflict)
+const { uploadCoverImage } = require('../controllers/eventController');
+router.post('/cover-image', upload.single('cover_image'), uploadCoverImage);
+
 // Event CRUD
 router.post('/', createEvent);
 router.get('/', getAllEvents);
